@@ -1,7 +1,10 @@
-import express from "express";
-import cors from "cors";
-import dotenv from "dotenv";
-import fs from "fs";
+const express = require("express");
+const cors = require("cors");
+const dotenv = require("dotenv");
+const fs = require("fs");
+
+// Node 18 sudah ada fetch global
+const fetchFn = global.fetch;
 
 dotenv.config();
 
@@ -29,7 +32,12 @@ let posts = [];
 // ================= AI FUNCTION =================
 const callAI = async (messages, temperature = 0.7) => {
   try {
-    const response = await fetch(
+    if (!process.env.GROQ_API_KEY) {
+      console.log("❌ GROQ_API_KEY belum di set");
+      return null;
+    }
+
+    const response = await fetchFn(
       "https://api.groq.com/openai/v1/chat/completions",
       {
         method: "POST",
@@ -48,20 +56,11 @@ const callAI = async (messages, temperature = 0.7) => {
     const data = await response.json();
 
     if (!data || data.error) {
-      console.log("ERROR GROQ:", data);
+      console.log("GROQ ERROR:", data);
       return null;
     }
 
-    const content = data?.choices?.[0]?.message?.content;
-
-    if (!content) {
-      return JSON.stringify({
-        action: "ignore",
-        content: null
-      });
-    }
-
-    return content;
+    return data?.choices?.[0]?.message?.content || null;
 
   } catch (err) {
     console.log("FETCH ERROR:", err.message);
@@ -69,10 +68,9 @@ const callAI = async (messages, temperature = 0.7) => {
   }
 };
 
-
 // ================= HOME =================
 app.get("/", (req, res) => {
-  res.send("AI Agent Groq hidup 🚀");
+  res.send("AI Agent Groq running 🚀");
 });
 
 // ================= CHAT =================
@@ -92,14 +90,12 @@ app.post("/chat", async (req, res) => {
       content: userMessage
     });
 
-    if (memories[userId].length > 20) {
-      memories[userId].shift();
-    }
+    if (memories[userId].length > 20) memories[userId].shift();
 
     const reply = await callAI([
       {
         role: "system",
-        content: "Kamu adalah AI assistant yang ramah dan ingat percakapan user."
+        content: "Kamu AI assistant yang ramah dan ingat percakapan user."
       },
       ...memories[userId]
     ]);
@@ -113,9 +109,7 @@ app.post("/chat", async (req, res) => {
       content: reply
     });
 
-    if (memories[userId].length > 20) {
-      memories[userId].shift();
-    }
+    if (memories[userId].length > 20) memories[userId].shift();
 
     saveMemory(memories);
 
@@ -145,23 +139,18 @@ app.post("/agent", async (req, res) => {
       {
         role: "system",
         content: `
-Kamu adalah AI Agent.
+Kamu AI Agent.
 
 Tugas:
-- pahami maksud user
-- tentukan aksi
+- pahami intent user
+- tentukan aksi (post/reply/none)
 
-ACTION:
-- "post" → kalau user mau bikin post
-- "reply" → kalau user mau balas
-- "none" → kalau cuma ngobrol
-
-FORMAT:
+FORMAT JSON:
 {
   "reply": "...",
   "action": "post | reply | none"
 }
-`
+        `
       },
       {
         role: "user",
@@ -171,23 +160,11 @@ FORMAT:
 
     let result;
 
-try {
-  result = JSON.parse(raw);
-} catch {
-  result = {
-    action: "ignore",
-    content: null
-  };
-}
-
-// VALIDATION (TARUH DI SINI)
-if (!result.action || !["reply", "ignore"].includes(result.action)) {
-  result.action = "ignore";
-}
-
-if (result.action === "reply" && !result.content) {
-  result.action = "ignore";
-}
+    try {
+      result = JSON.parse(raw);
+    } catch {
+      result = { reply: raw || "", action: "none" };
+    }
 
     res.json({
       success: true,
@@ -210,7 +187,7 @@ app.post("/post", (req, res) => {
   }
 
   const newPost = {
-    id: Date.now() + Math.random(), // ✅ FIX koma
+    id: Date.now(),
     content,
     comments: []
   };
@@ -228,25 +205,21 @@ app.post("/moltbook", async (req, res) => {
   try {
     const { event, agentId } = req.body;
 
-   if (!result.action || !["reply", "ignore"].includes(result.action)) {
-  result.action = "ignore";
-}
-
-if (result.action === "reply" && !result.content) {
-  result.action = "ignore";
-}
-
     const raw = await callAI([
       {
         role: "system",
         content: `
-Tentukan reply atau ignore.
+Kamu AI moderator social network.
 
-FORMAT:
+Tentukan:
+- reply atau ignore
+
+FORMAT JSON:
 {
   "action": "reply | ignore",
   "content": "..."
-}`
+}
+        `
       },
       {
         role: "user",
@@ -259,15 +232,14 @@ FORMAT:
     try {
       result = JSON.parse(raw);
     } catch {
-      result = {
-        action: "ignore",
-        content: null
-      };
+      result = { action: "ignore", content: null };
     }
+
+    if (!result.action) result.action = "ignore";
 
     res.json({
       success: true,
-      agentId: agentId || "unknown-agent",
+      agentId: agentId || "unknown",
       event,
       decision: result
     });
@@ -281,10 +253,7 @@ FORMAT:
 app.post("/simulate", async (req, res) => {
   try {
     if (posts.length === 0) {
-      return res.json({
-        success: false,
-        error: "belum ada post"
-      });
+      return res.json({ success: false, error: "belum ada post" });
     }
 
     const post = posts[posts.length - 1];
@@ -293,12 +262,11 @@ app.post("/simulate", async (req, res) => {
       {
         role: "system",
         content: `
-Kamu adalah AI agent di social media.
+Kamu AI agent social media.
 
-Lihat post ini, lalu:
-- reply atau ignore
+Reply atau ignore post.
 
-FORMAT JSON:
+FORMAT:
 {
   "action": "reply | ignore",
   "content": "komentar"
@@ -329,12 +297,11 @@ FORMAT JSON:
     });
 
   } catch (err) {
-    res.json({
-      success: false,
-      error: err.message
-    });
+    res.json({ success: false, error: err.message });
   }
 });
+
+// ================= EXECUTE =================
 app.post("/execute", (req, res) => {
   const { action, content } = req.body;
 
@@ -359,7 +326,10 @@ app.post("/execute", (req, res) => {
     message: "tidak ada aksi"
   });
 });
+
 // ================= START =================
-app.listen(3000, () => {
-  console.log("AI Agent Groq running 🚀 http://localhost:3000");
+const PORT = process.env.PORT || 3000;
+
+app.listen(PORT, "0.0.0.0", () => {
+  console.log("AI running 🚀 on", PORT);
 });
