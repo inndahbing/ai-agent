@@ -3,9 +3,9 @@ const cors = require("cors");
 const dotenv = require("dotenv");
 const fs = require("fs");
 
-// Node 18 sudah ada fetch global
-const fetch = (...args) =>
-  import('node-fetch').then(({ default: fetch }) => fetch(...args));
+// FIX: pakai dynamic fetch (AMAN di Railway + Node 18)
+const fetchFn = (...args) =>
+  import("node-fetch").then(({ default: fetch }) => fetch(...args));
 
 dotenv.config();
 
@@ -44,13 +44,13 @@ const callAI = async (messages, temperature = 0.7) => {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "Authorization": `Bearer ${process.env.GROQ_API_KEY}`
+          Authorization: `Bearer ${process.env.GROQ_API_KEY}`,
         },
         body: JSON.stringify({
           model: "llama-3.3-70b-versatile",
           temperature,
-          messages
-        })
+          messages,
+        }),
       }
     );
 
@@ -62,7 +62,6 @@ const callAI = async (messages, temperature = 0.7) => {
     }
 
     return data?.choices?.[0]?.message?.content || null;
-
   } catch (err) {
     console.log("FETCH ERROR:", err.message);
     return null;
@@ -88,7 +87,7 @@ app.post("/chat", async (req, res) => {
 
     memories[userId].push({
       role: "user",
-      content: userMessage
+      content: userMessage,
     });
 
     if (memories[userId].length > 20) memories[userId].shift();
@@ -96,9 +95,9 @@ app.post("/chat", async (req, res) => {
     const reply = await callAI([
       {
         role: "system",
-        content: "Kamu AI assistant yang ramah dan ingat percakapan user."
+        content: "Kamu AI assistant yang ramah dan ingat percakapan user.",
       },
-      ...memories[userId]
+      ...memories[userId],
     ]);
 
     if (!reply) {
@@ -107,7 +106,7 @@ app.post("/chat", async (req, res) => {
 
     memories[userId].push({
       role: "assistant",
-      content: reply
+      content: reply,
     });
 
     if (memories[userId].length > 20) memories[userId].shift();
@@ -118,10 +117,9 @@ app.post("/chat", async (req, res) => {
       success: true,
       data: {
         reply: reply.trim(),
-        action: "none"
-      }
+        action: "none",
+      },
     });
-
   } catch (err) {
     res.json({ success: false, error: err.message });
   }
@@ -136,10 +134,11 @@ app.post("/agent", async (req, res) => {
       return res.json({ success: false, error: "input kosong" });
     }
 
-    const raw = await callAI([
-      {
-        role: "system",
-        content: `
+    const raw = await callAI(
+      [
+        {
+          role: "system",
+          content: `
 Kamu AI Agent.
 
 Tugas:
@@ -151,16 +150,17 @@ FORMAT JSON:
   "reply": "...",
   "action": "post | reply | none"
 }
-        `
-      },
-      {
-        role: "user",
-        content: input
-      }
-    ], 0.4);
+        `,
+        },
+        {
+          role: "user",
+          content: input,
+        },
+      ],
+      0.4
+    );
 
     let result;
-
     try {
       result = JSON.parse(raw);
     } catch {
@@ -171,9 +171,8 @@ FORMAT JSON:
       success: true,
       agent: "moltbooks-agent-v1",
       userId: userId || null,
-      data: result
+      data: result,
     });
-
   } catch (err) {
     res.json({ success: false, error: err.message });
   }
@@ -190,14 +189,14 @@ app.post("/post", (req, res) => {
   const newPost = {
     id: Date.now(),
     content,
-    comments: []
+    comments: [],
   };
 
   posts.push(newPost);
 
   res.json({
     success: true,
-    post: newPost
+    post: newPost,
   });
 });
 
@@ -206,10 +205,11 @@ app.post("/moltbook", async (req, res) => {
   try {
     const { event, agentId } = req.body;
 
-    const raw = await callAI([
-      {
-        role: "system",
-        content: `
+    const raw = await callAI(
+      [
+        {
+          role: "system",
+          content: `
 Kamu AI moderator social network.
 
 Tentukan:
@@ -220,31 +220,29 @@ FORMAT JSON:
   "action": "reply | ignore",
   "content": "..."
 }
-        `
-      },
-      {
-        role: "user",
-        content: JSON.stringify(event)
-      }
-    ], 0.4);
+        `,
+        },
+        {
+          role: "user",
+          content: JSON.stringify(event),
+        },
+      ],
+      0.4
+    );
 
     let result;
-
     try {
       result = JSON.parse(raw);
     } catch {
       result = { action: "ignore", content: null };
     }
 
-    if (!result.action) result.action = "ignore";
-
     res.json({
       success: true,
       agentId: agentId || "unknown",
       event,
-      decision: result
+      decision: result,
     });
-
   } catch (err) {
     res.json({ success: false, error: err.message });
   }
@@ -259,10 +257,11 @@ app.post("/simulate", async (req, res) => {
 
     const post = posts[posts.length - 1];
 
-    const raw = await callAI([
-      {
-        role: "system",
-        content: `
+    const raw = await callAI(
+      [
+        {
+          role: "system",
+          content: `
 Kamu AI agent social media.
 
 Reply atau ignore post.
@@ -272,16 +271,17 @@ FORMAT:
   "action": "reply | ignore",
   "content": "komentar"
 }
-        `
-      },
-      {
-        role: "user",
-        content: post.content
-      }
-    ], 0.4);
+        `,
+        },
+        {
+          role: "user",
+          content: post.content,
+        },
+      ],
+      0.4
+    );
 
     let result;
-
     try {
       result = JSON.parse(raw);
     } catch {
@@ -294,9 +294,8 @@ FORMAT:
 
     res.json({
       success: true,
-      post
+      post,
     });
-
   } catch (err) {
     res.json({ success: false, error: err.message });
   }
@@ -310,7 +309,7 @@ app.post("/execute", (req, res) => {
     const newPost = {
       id: Date.now(),
       content,
-      comments: []
+      comments: [],
     };
 
     posts.push(newPost);
@@ -318,13 +317,13 @@ app.post("/execute", (req, res) => {
     return res.json({
       success: true,
       message: "post dibuat",
-      post: newPost
+      post: newPost,
     });
   }
 
   res.json({
     success: true,
-    message: "tidak ada aksi"
+    message: "tidak ada aksi",
   });
 });
 
