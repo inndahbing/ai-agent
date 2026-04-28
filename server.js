@@ -4,7 +4,8 @@ const dotenv = require("dotenv");
 const fs = require("fs");
 
 // Node 18 sudah ada fetch global
-const fetchFn = global.fetch;
+const fetch = (...args) =>
+  import('node-fetch').then(({ default: fetch }) => fetch(...args));
 
 dotenv.config();
 
