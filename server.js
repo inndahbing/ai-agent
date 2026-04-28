@@ -3,10 +3,6 @@ const cors = require("cors");
 const dotenv = require("dotenv");
 const fs = require("fs");
 
-// FIX: pakai dynamic fetch (AMAN di Railway + Node 18)
-const fetchFn = (...args) =>
-  import("node-fetch").then(({ default: fetch }) => fetch(...args));
-
 dotenv.config();
 
 const app = express();
@@ -38,7 +34,7 @@ const callAI = async (messages, temperature = 0.7) => {
       return null;
     }
 
-    const response = await fetchFn(
+    const response = await fetch(
       "https://api.groq.com/openai/v1/chat/completions",
       {
         method: "POST",
@@ -56,14 +52,16 @@ const callAI = async (messages, temperature = 0.7) => {
 
     const data = await response.json();
 
+    console.log("📦 GROQ RESPONSE:", JSON.stringify(data));
+
     if (!data || data.error) {
-      console.log("GROQ ERROR:", data);
+      console.log("❌ GROQ ERROR:", data);
       return null;
     }
 
     return data?.choices?.[0]?.message?.content || null;
   } catch (err) {
-    console.log("FETCH ERROR:", err.message);
+    console.log("❌ FETCH ERROR:", err.message);
     return null;
   }
 };
@@ -76,6 +74,8 @@ app.get("/", (req, res) => {
 // ================= CHAT =================
 app.post("/chat", async (req, res) => {
   try {
+    console.log("🔥 REQUEST CHAT MASUK");
+
     const userId = req.body?.userId || "default";
     const userMessage = req.body?.message;
 
@@ -100,6 +100,8 @@ app.post("/chat", async (req, res) => {
       ...memories[userId],
     ]);
 
+    console.log("🤖 REPLY:", reply);
+
     if (!reply) {
       return res.json({ success: false, error: "AI tidak respon" });
     }
@@ -121,6 +123,7 @@ app.post("/chat", async (req, res) => {
       },
     });
   } catch (err) {
+    console.log("❌ CHAT ERROR:", err);
     res.json({ success: false, error: err.message });
   }
 });
@@ -130,35 +133,24 @@ app.post("/agent", async (req, res) => {
   try {
     const { input, userId } = req.body;
 
-    if (!input) {
-      return res.json({ success: false, error: "input kosong" });
-    }
-
-    const raw = await callAI(
-      [
-        {
-          role: "system",
-          content: `
+    const raw = await callAI([
+      {
+        role: "system",
+        content: `
 Kamu AI Agent.
 
-Tugas:
-- pahami intent user
-- tentukan aksi (post/reply/none)
-
-FORMAT JSON:
+Tentukan JSON:
 {
   "reply": "...",
   "action": "post | reply | none"
 }
         `,
-        },
-        {
-          role: "user",
-          content: input,
-        },
-      ],
-      0.4
-    );
+      },
+      {
+        role: "user",
+        content: input,
+      },
+    ], 0.4);
 
     let result;
     try {
@@ -169,9 +161,8 @@ FORMAT JSON:
 
     res.json({
       success: true,
-      agent: "moltbooks-agent-v1",
-      userId: userId || null,
       data: result,
+      userId: userId || null,
     });
   } catch (err) {
     res.json({ success: false, error: err.message });
@@ -182,10 +173,6 @@ FORMAT JSON:
 app.post("/post", (req, res) => {
   const { content } = req.body;
 
-  if (!content) {
-    return res.json({ success: false, error: "content kosong" });
-  }
-
   const newPost = {
     id: Date.now(),
     content,
@@ -194,137 +181,7 @@ app.post("/post", (req, res) => {
 
   posts.push(newPost);
 
-  res.json({
-    success: true,
-    post: newPost,
-  });
-});
-
-// ================= MOLTBOOK =================
-app.post("/moltbook", async (req, res) => {
-  try {
-    const { event, agentId } = req.body;
-
-    const raw = await callAI(
-      [
-        {
-          role: "system",
-          content: `
-Kamu AI moderator social network.
-
-Tentukan:
-- reply atau ignore
-
-FORMAT JSON:
-{
-  "action": "reply | ignore",
-  "content": "..."
-}
-        `,
-        },
-        {
-          role: "user",
-          content: JSON.stringify(event),
-        },
-      ],
-      0.4
-    );
-
-    let result;
-    try {
-      result = JSON.parse(raw);
-    } catch {
-      result = { action: "ignore", content: null };
-    }
-
-    res.json({
-      success: true,
-      agentId: agentId || "unknown",
-      event,
-      decision: result,
-    });
-  } catch (err) {
-    res.json({ success: false, error: err.message });
-  }
-});
-
-// ================= SIMULATE =================
-app.post("/simulate", async (req, res) => {
-  try {
-    if (posts.length === 0) {
-      return res.json({ success: false, error: "belum ada post" });
-    }
-
-    const post = posts[posts.length - 1];
-
-    const raw = await callAI(
-      [
-        {
-          role: "system",
-          content: `
-Kamu AI agent social media.
-
-Reply atau ignore post.
-
-FORMAT:
-{
-  "action": "reply | ignore",
-  "content": "komentar"
-}
-        `,
-        },
-        {
-          role: "user",
-          content: post.content,
-        },
-      ],
-      0.4
-    );
-
-    let result;
-    try {
-      result = JSON.parse(raw);
-    } catch {
-      result = { action: "ignore" };
-    }
-
-    if (result.action === "reply" && result.content) {
-      post.comments.push(result.content);
-    }
-
-    res.json({
-      success: true,
-      post,
-    });
-  } catch (err) {
-    res.json({ success: false, error: err.message });
-  }
-});
-
-// ================= EXECUTE =================
-app.post("/execute", (req, res) => {
-  const { action, content } = req.body;
-
-  if (action === "post") {
-    const newPost = {
-      id: Date.now(),
-      content,
-      comments: [],
-    };
-
-    posts.push(newPost);
-
-    return res.json({
-      success: true,
-      message: "post dibuat",
-      post: newPost,
-    });
-  }
-
-  res.json({
-    success: true,
-    message: "tidak ada aksi",
-  });
+  res.json({ success: true, post: newPost });
 });
 
 // ================= START =================
