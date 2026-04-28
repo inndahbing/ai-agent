@@ -1,0 +1,29 @@
+{
+  "indah123": [
+    {
+      "role": "user",
+      "content": "halo"
+    },
+    {
+      "role": "assistant",
+      "content": "hai!"
+    },
+    {
+      "role": "user",
+      "content": "nama aku indah"
+    },
+    {
+      "role": "assistant",
+      "content": "Senang berkenalan, Indah! Ada yang bisa aku bantu hari ini?"
+    },
+    {
+      "role": "user",
+      "content": "nama aku siapa?"
+    },
+    {
+      "role": "assistant",
+      "content": "Kamu Indah, kan?"
+    }
+  ],
+  "user2": []
+}
